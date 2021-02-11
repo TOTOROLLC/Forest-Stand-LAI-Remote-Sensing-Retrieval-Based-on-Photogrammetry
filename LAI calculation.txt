@@ -1,0 +1,106 @@
+clear;
+clc;
+warning off;
+SamplePath1 = 'Point cloud input folder location';       %Point cloud input folder location
+SamplePath2 = 'DEM input folder location';                     %Point cloud input folder location
+SamplePath3 = LAI output folder location';              %output folder location
+SamplePath4 = 'LAD output folder location';      %LAD output folder location
+namelist = dir([SamplePath1 ,'*.txt']);
+namelist2 = dir([SamplePath2 ,'*.csv']);
+l=size(namelist);
+l2=size(namelist2);
+fc=0.5;                                             %Layer thickness
+N=6;                                                 %Where the child voxel size starts
+Nend=15;                                              %Where the child voxel size ends
+tssize=Nend-N+1;                                      %Number of voxelized models
+load('H:\桌面文件\DEM及样地面需归一化\samplearea.csv');
+load('H:\桌面文件\DEM及样地面需归一化\area.csv');     %plot area
+samplearea(:,1)=samplearea(:,1)-443000;    samplearea(:,2)=samplearea(:,2)-2835000;
+samplearea(:,1:2)=(floor(samplearea(:,1:2)/fc))*fc; 
+plotnum= unique(samplearea(:,3));                   %plot numbe
+numplot1=73;                                        %plot number+1
+for i = 1:l
+    namelist(i).name;                              
+    filename{i} = [SamplePath1,namelist(i).name];  
+    importdata(filename{i});
+    A=[];A=ans;ans=[];
+    namelist2(i).name;                             
+    filename2{i} = [SamplePath2,namelist2(i).name]; 
+    importdata(filename2{i});
+    DEM=[];DEM=ans;ans=[];
+    filename3{i} = [SamplePath3,namelist(i).name];    
+    filename4{i}=erase(filename3{i},'.txt');          
+    outputfilenameLAI{i}= [filename4{i},'LAI.csv '];       
+    outputfilenameLAD{i}= [filename4{i},'LAD.csv '];    
+    filename5{i} = [SamplePath4,namelist(i).name];    
+    filename6{i}=erase(filename5{i},'.txt');          
+    A(:,1)=A(:,1)-443000;    A(:,2)=A(:,2)-2835000;
+    DEM(:,1)=DEM(:,1)-443000;    DEM(:,2)=DEM(:,2)-2835000;
+    DEM(:,1:2)=(floor(DEM(:,1:2)/fc))*fc; 
+    kdtreeobj = KDTreeSearcher(DEM(:,[1,2]),'distance','euclidean');
+    [idxkdt,Dkdt]=knnsearch(DEM(:,[1,2]),A(:,[1,2]),'dist','euclidean','k',1);
+    A(:,4)=DEM(idxkdt,3);            %DEM
+    A(:,5)=A(:,3)-A(:,4);            %Calculate relative ground height
+    AA=[];   AA=[A(:,1:2),A(:,5)];
+    [m,n]=find(AA(:,3)<2);
+    AA(m,:)=[];    
+    KK=[];   KK=(floor(AA(:,1:3)/fc))*fc;                          
+    ee1=KK(:,1)*1000000+KK(:,2);  ee=ee1+KK(:,3)*1000000000000;  
+    minmum=min(KK(:,3));   maxmum=max(KK(:,3));    %Extract the maximum and minimum height
+    Hsize=(maxmum-minmum)/0.5+1;                  
+    plotLAD=zeros(tssize*Hsize,numplot1);            
+    for jj=1:1:tssize
+        j=(jj+N-1)/100;                                                    
+        K=(floor(AA(:,1:3)/j))*j;                                          
+        e1=K(:,1)*1000000+K(:,2);   e=e1+K(:,3)*1000000000000;              
+        s1=[e(1:end),ee(1:end)];                                           
+        [tmp I] = unique(s1(:,1), 'first');
+        r = s1(I,:);
+        ua1=unique(r(:,2));
+        [h all]=hist(r(:,2),ua1);
+        all(:,2)=h.';
+        all(:,3)=floor(all(:,1)/100000000000);
+        all(:,3)=all(:,3)/10;
+        all(:,4)=all(:,1)-all(:,3)*1000000000000;
+        all(:,4)=floor(all(:,4)/100000);
+        all(:,4)=all(:,4)/10;
+        all(:,5)=all(:,1)-all(:,3)*1000000000000-all(:,4)*1000000;
+        all(:,6)=(all(:,2)*j*j*j)/0.125;
+        all1(:,1)=all(:,4);%X 0.5
+        all1(:,2)=all(:,5);%Y 0.5
+        all1(:,3)=all(:,3);%Z 0.5
+        all1(:,4)=all(:,6);
+        kdtreeobj = KDTreeSearcher(samplearea(:,[1,2]),'distance','euclidean');
+        [idxplot,Dplot]=knnsearch(samplearea(:,[1,2]),all1(:,[1,2]),'dist','euclidean','k',1);
+        all1(:,5)=samplearea(idxplot,3);
+        [mplot,nplot]=find(Dplot>0.5|Dplot==0.5);     all1(mplot,:)=[];                         %Delete voxels in non-sample area
+        tsmx=all1;    tsmx(:,4)= (tsmx(:,4)*1.62)/0.5;
+        tsmx(:,6)=443000;    tsmx(:,7)=2835000;
+        stemp = [num2str(j)];
+        outputfilenametisumoxing{i}= [filename6{i},'size',stemp,'m.csv '];        
+        dlmwrite(outputfilenametisumoxing{i},tsmx);                            
+        %LAI calculation
+        LAI=[all1(:,5),all1(:,4)];                 
+        LAIsum= arrayfun(@(x)sum(LAI(LAI(:,1) == plotnum(x),2)),1:length(plotnum));
+        plotLAI(:,1)=plotnum;                     
+        plotLAI(:,jj+1)=((LAIsum'*0.25)./(0.5*area))*1.62;   
+        %LAD calculation
+        for hight=1:Hsize
+            Hhight=minmum+0.5*(hight-1);
+            [mH,nH]=find(all1(:,3)==Hhight);
+            LAD=[all1(mH,5),all1(mH,4)];                         
+            LADsum= arrayfun(@(x)sum(LAD(LAD(:,1) == plotnum(x),2)),1:length(plotnum));
+            plotLAD1(hight,1)=minmum+0.5*(hight-1);               
+            plotLAD1(hight,2:numplot1)=((LADsum*0.25)./(0.5*area'))*1.62;   
+        end
+            plotLAD(Hsize*(jj-1)+1:Hsize*jj,:)=plotLAD1;            
+          clearvars all tsmx all1 K e1 e r I ua1 LAI LAIsum ;        
+          jj
+    end
+            dlmwrite(outputfilenameLAI{i},plotLAI);                   %output LAI
+            dlmwrite(outputfilenameLAD{i},plotLAD);                   %output LAD 
+            HHight(i,:)=[minmum,maxmum];
+            i
+            clearvars ee1 ee plotLAD plotLAD1;
+end
+          
